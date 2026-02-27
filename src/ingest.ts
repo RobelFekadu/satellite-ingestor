@@ -41,6 +41,7 @@ async function pushEventsByType(gameType:GameType) {
         const endTime = new Date(startTime);
         const cycleMinute = Number(process.env[`${gameType}_GAME_CYCLE_MINUTE`]);
         startTime.setMinutes(startTime.getMinutes() - cycleMinute);
+        startTime.setHours(startTime.getHours() - 3);
 
         if (moment(now).isAfter(startTime) && moment(now).isBefore(endTime)) {
           const gameData = new GameData()
@@ -130,6 +131,7 @@ async function pushResults(gameType:GameType) {
         console.log(JSON.stringify(error))
       }
     } else {
+      numOfTrial += 4;
       console.log(`Failed fetching data for getting result--${gameData.eventId} - ${gameData.typeValue} - ${gameType}`)
     }
   }
