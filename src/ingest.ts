@@ -38,16 +38,15 @@ async function pushEventsByType(gameType:GameType) {
         const startTime = new Date(raceEvent.StartDateTimeAsWords);
         startTime.setSeconds(0);
         startTime.setMilliseconds(0);
+        startTime.setHours(startTime.getHours() - 3);
         const endTime = new Date(startTime);
         const cycleMinute = Number(process.env[`${gameType}_GAME_CYCLE_MINUTE`]);
         startTime.setMinutes(startTime.getMinutes() - cycleMinute);
-        startTime.setHours(startTime.getHours() - 3);
 
         if (moment(now).isAfter(startTime) && moment(now).isBefore(endTime)) {
           const gameData = new GameData()
           gameData.eventId = satelliteRaceEvent.eventId;
           gameData.typeValue = satelliteRaceEvent.typeValue;
-
           openGameDataTypeMap[gameType] = gameData;
         }
 
