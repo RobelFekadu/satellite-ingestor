@@ -166,7 +166,6 @@ cron.schedule("* * * * *", async () => {
   console.log(`\n[${new Date().toISOString()}] Tick`);
 
   for (const gameType of Object.values(GameType)) {
-    await pushEventsByType(gameType);
     try {
       if (shouldRunSync(gameType)) {
         await pushEventsByType(gameType);
