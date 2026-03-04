@@ -1,7 +1,70 @@
 import { GameType } from "./game-type.enum"
 import axios from "axios";
+import fs from 'fs';
+import path from 'path';
+import puppeteer from "puppeteer";
 
-let CookieRetailId = 1;
+let lastLoginAttempt = new Date(0);
+
+export async function login() {
+  const url = process.env.DOMAIN_URL + 'RetailUser/Login';
+  const browser = await puppeteer.launch({
+    headless: true, // use false if debugging
+    args: [
+      "--no-sandbox",
+      "--disable-setuid-sandbox"
+    ]
+  });
+
+  try {
+    const page = await browser.newPage();
+
+    // Realistic browser fingerprint
+    await page.setUserAgent(
+      "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36"
+    );
+
+    await page.setViewport({ width: 1366, height: 768 });
+
+    // Go to login page (not the API endpoint directly)
+    await page.goto(
+      url,
+      { waitUntil: "networkidle2" }
+    );
+
+    // Wait for form fields (adjust selectors!)
+    await page.waitForSelector('input[name="Username"]');
+
+    // Type like a human (slight delay helps bypass bot detection)
+    await page.type('input[name="Username"]', `${process.env.USERNAME}`, { delay: 50 });
+    await page.type('input[name="Password"]', `${process.env.PASSWORD}`, { delay: 50 });
+
+    // Submit and wait for redirect
+    await Promise.all([
+      page.click('#submit'),
+      page.waitForNavigation({ waitUntil: "networkidle2" })
+    ]);
+
+    // Get cookies from browser
+    const cookies = await browser.cookies();
+
+    const retailSidCookie = cookies.find(c => c.name === "retailsid");
+
+    if (!retailSidCookie) {
+      console.log("Login failed: retailsid cookie not found");
+      await browser.close();
+      return null;
+    }
+
+    await browser.close();
+    return retailSidCookie.value;
+
+  } catch (err) {
+    console.error("Login error:", err);
+    await browser.close();
+    return null;
+  }
+}
 
 export async function getEventByType(gameType: GameType) {
   const url = process.env.DOMAIN_URL + 'Home/GetEventsByType';
@@ -27,7 +90,7 @@ export async function getEventByType(gameType: GameType) {
     {
       headers: {
         "Content-Type": "application/json",
-        Cookie: `retailsid=${process.env[`SATELLITE_COOKIE_ID_${CookieRetailId}`]};`,
+        Cookie: `retailsid=${process.env[`SATELLITE_COOKIE_ID`]};`,
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
       },
@@ -37,7 +100,7 @@ export async function getEventByType(gameType: GameType) {
     if (sourceResponse.status == 200 && sourceResponse.data.HasErrorOccured === false) {
       return sourceResponse.data.Data;
     }else{
-      handleCookieExpiry(sourceResponse.data)
+      await handleCookieExpiry(sourceResponse.data)
       return null
     }
   } catch (err) {
@@ -67,7 +130,7 @@ export async function getEventDetail(eventId: string, typeValue: string, gameTyp
       {
         headers: {
           "Content-Type": "application/json",
-          Cookie: `retailsid=${process.env[`SATELLITE_COOKIE_ID_${CookieRetailId}`]};`,
+          Cookie: `retailsid=${process.env[`SATELLITE_COOKIE_ID`]};`,
           "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
         },
@@ -80,7 +143,7 @@ export async function getEventDetail(eventId: string, typeValue: string, gameTyp
     ) {
       return eventDetailResponse.data.Event;
     } else {
-      handleCookieExpiry(eventDetailResponse.data);
+      await handleCookieExpiry(eventDetailResponse.data);
       return null;
     }
   } catch (error) {
@@ -88,19 +151,34 @@ export async function getEventDetail(eventId: string, typeValue: string, gameTyp
   }
 }
 
-function handleCookieExpiry(data: any) {
-  if (data.includes('Cashier Login')) {
-    console.log(`TOKEN EXPIRED: ${process.env[`SATELLITE_COOKIE_ID_${CookieRetailId}`]}`);
-    updateCashierTokenToNext();
+async function handleCookieExpiry(data: any) {
+  const now = new Date();
+  const fiveMinutes = 5 * 60 * 1000;
+
+  if (data.includes('Cashier Login') && (now.getTime() - lastLoginAttempt.getTime() > fiveMinutes)) {
+    console.log(`COOKIE EXPIRED: ${process.env[`SATELLITE_COOKIE_ID`]}`);
+    const cookie = await login();
+    console.log(`NEW COOKIE: ${cookie}`);
+    lastLoginAttempt = now;
+    updateCashierToken(cookie);
   }
 }
 
-function updateCashierTokenToNext() {
-  if(CookieRetailId == 3){
-    CookieRetailId = 1;
-  }else{
-    CookieRetailId++;
+function updateCashierToken(value: string|null|unknown) {
+  const envPath = path.resolve(__dirname, '../.env');
+
+  let envContent = fs.readFileSync(envPath, 'utf8');
+
+  const regex = new RegExp(`^SATELLITE_COOKIE_ID=.*$`, 'm');
+
+  if (regex.test(envContent)) {
+    envContent = envContent.replace(regex, `SATELLITE_COOKIE_ID=${value}`);
+  } else {
+    // Append if not exists
+    envContent += `\nSATELLITE_COOKIE_ID=${value}`;
   }
+
+  fs.writeFileSync(envPath, envContent);
 }
 
 function getFeedId(gameType: GameType){
