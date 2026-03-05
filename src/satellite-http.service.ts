@@ -5,6 +5,15 @@ import path from 'path';
 import puppeteer from "puppeteer";
 
 let lastLoginAttempt = new Date(0);
+let currentCookie = process.env.SATELLITE_COOKIE_ID;
+
+export function updateLocalCashierToken(cookie: string) {
+  currentCookie = cookie;
+}
+
+export function getCashierToken() {
+  return currentCookie;
+}
 
 export async function login() {
   const url = process.env.DOMAIN_URL + 'RetailUser/Login';
@@ -90,7 +99,7 @@ export async function getEventByType(gameType: GameType) {
     {
       headers: {
         "Content-Type": "application/json",
-        Cookie: `retailsid=${process.env[`SATELLITE_COOKIE_ID`]};`,
+        Cookie: `retailsid=${getCashierToken()};`,
         "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
       },
@@ -130,7 +139,7 @@ export async function getEventDetail(eventId: string, typeValue: string, gameTyp
       {
         headers: {
           "Content-Type": "application/json",
-          Cookie: `retailsid=${process.env[`SATELLITE_COOKIE_ID`]};`,
+          Cookie: `retailsid=${getCashierToken()};`,
           "User-Agent":
           "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
         },
@@ -156,7 +165,7 @@ async function handleCookieExpiry(data: any) {
   const fiveMinutes = 5 * 60 * 1000;
 
   if (data.includes('Cashier Login') && (now.getTime() - lastLoginAttempt.getTime() > fiveMinutes)) {
-    console.log(`COOKIE EXPIRED: ${process.env[`SATELLITE_COOKIE_ID`]}`);
+    console.log(`COOKIE EXPIRED: ${getCashierToken()}`);
     const cookie = await login();
     console.log(`NEW COOKIE: ${cookie}`);
     lastLoginAttempt = now;
@@ -179,6 +188,7 @@ function updateCashierToken(value: string|null|unknown) {
   }
 
   fs.writeFileSync(envPath, envContent);
+  updateLocalCashierToken(`${value}`);
 }
 
 function getFeedId(gameType: GameType){
