@@ -1,11 +1,10 @@
 import axios from "axios";
 import cron from "node-cron";
 import dotenv from "dotenv";
-import { GameData, GameType, SatelliteRaceEntry, SatelliteRaceEvent, SetSatelliteGameResult, SyncSatelliteGamesDto } from "./game-type.enum";
-import { getEventByType, getEventDetail } from "./satellite-http.service";
-import moment from 'moment';
-
 dotenv.config();
+import { GameData, GameType, SatelliteRaceEntry, SatelliteRaceEvent, SetSatelliteGameResult, SyncSatelliteGamesDto } from "./game-type.enum";
+import { getEventByType, getEventDetail, initBrowser, login } from "./satellite-http.service";
+import moment from 'moment';
 
 const openGameDataTypeMap: Record<GameType, GameData> = {
   [GameType.PlatinumHounds]: new GameData(),
@@ -83,6 +82,7 @@ async function pushEventsByType(gameType:GameType) {
         {
           headers: {
             "Content-Type": "application/json",
+            "API-KEY": process.env.API_KEY,
           },
           timeout: 15000,
         });
@@ -121,6 +121,7 @@ async function pushResults(gameType:GameType) {
           {
             headers: {
               "Content-Type": "application/json",
+              "API-KEY": process.env.API_KEY,
             },
             timeout: 15000,
           });
@@ -162,26 +163,40 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-cron.schedule("* * * * *", async () => {
-  console.log(`\n[${new Date().toISOString()}] Tick`);
 
-  for (const gameType of Object.values(GameType)) {
-    try {
-      if (shouldRunSync(gameType)) {
-        await pushEventsByType(gameType);
-      } else {
-        console.log(`${gameType} skipped`);
-      }
 
-      if (shouldRunSetResult(gameType)) {
-        await pushResults(gameType);
-      } else {
-        console.log(`${gameType} skipped for result`);
+async function start() {
+  console.log("Starting Puppeteer session...");
+
+  await initBrowser();
+  await login();
+
+  console.log("Login completed. Starting cron jobs...");
+
+  cron.schedule("* * * * *", async () => {
+    console.log(`\n[${new Date().toISOString()}] Tick`);
+
+    for (const gameType of Object.values(GameType)) {
+      try {
+        if (shouldRunSync(gameType)) {
+          await pushEventsByType(gameType);
+        } else {
+          console.log(`${gameType} skipped`);
+        }
+
+        if (shouldRunSetResult(gameType)) {
+          await pushResults(gameType);
+        } else {
+          console.log(`${gameType} skipped for result`);
+        }
+      } catch (err: any) {
+        console.error(`Error in ${gameType}:`);
+        console.log(err.response?.data.message);
+        console.log(JSON.stringify(err))
       }
-    } catch (err) {
-      console.error(`Error in ${gameType}:`);
     }
-  }
-});
+  });
+}
 
+start();
 console.log("Ingestor started...");
