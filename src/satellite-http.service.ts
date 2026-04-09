@@ -39,7 +39,8 @@ export async function initBrowser() {
       "--no-sandbox",
       "--disable-setuid-sandbox",
       "--disable-blink-features=AutomationControlled"
-    ]
+    ],
+    protocolTimeout:60000
   });
 
   page = await browser.newPage();
@@ -155,7 +156,7 @@ async function browserPost(url: string, payload: any) {
 
     return JSON.parse(result);
   } catch (err) {
-    console.error("BrowserPost error:", err);
+    console.error(`BrowserPost error: ${new Date()}`, err);
   }
 }
 
