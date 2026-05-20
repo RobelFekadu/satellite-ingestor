@@ -1,14 +1,16 @@
 import { GameType } from "./game-type.enum"
 import puppeteer from "puppeteer-extra";
 import StealthPlugin from "puppeteer-extra-plugin-stealth";
-import type { Browser, Page } from "puppeteer";
+import type { Browser, BrowserContext, Page } from "puppeteer";
 
 puppeteer.use(StealthPlugin());
 
 let browser: Browser | null = null;
 let page: Page | null = null;
+let context: BrowserContext | null = null;
 const cashierCount = Object.keys(process.env).filter(key => key.startsWith("USERNAME")).length;
 let currentCashierId = 1;
+let csrfToken: string;
 
 async function sleep(ms: number) {
   return new Promise(r => setTimeout(r, ms));
@@ -28,6 +30,7 @@ export function getHeader(){
   return {
     "content-type": "application/json",
     "Cookie": `retailsid=${getCashierToken()};`,
+    "X-Csrf-Token": csrfToken,
     "User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
   }
 }
@@ -43,7 +46,8 @@ export async function initBrowser() {
     protocolTimeout:60000
   });
 
-  page = await browser.newPage();
+  context = browser.defaultBrowserContext();
+  page = await context.newPage();
 
   await page.setViewport({
     width: 1366,
@@ -102,7 +106,11 @@ export async function login() {
     return null;
   }
 
+  csrfToken = await page!.$eval('meta[name="csrf-token"]', el => el.content);
+  
   console.log("Login successful. retailsid:", retailSidCookie.value);
+  console.log(`csrfToken: ${csrfToken}`);
+
   updateLocalCashierToken(retailSidCookie.value);
 
   return retailSidCookie.value;
@@ -126,37 +134,45 @@ async function updateSessionIfExpired(response: any) {
 }
 
 async function browserPost(url: string, payload: any) {
+  let newPage: Page | null = null;
+
   try {
+    newPage = await context!.newPage();
+
+    await newPage.goto(process.env.DOMAIN_URL!, {
+      waitUntil: "networkidle2",
+      timeout: 30000
+    });
+
     const headers = getHeader()
-    const result = await page!.evaluate(async (url, payload, headers) => {
-      const res = await fetch(url, {
-        method: "POST",
-        headers: headers,
-        body: JSON.stringify(payload)
-      });
 
-      return res.text();
-    }, url, payload, headers);
+    const result = await Promise.race([
+      newPage.evaluate(
+        async ({ url, payload, headers }) => {
+          const res = await fetch(url, {
+            method: "POST",
+            headers,
+            body: JSON.stringify(payload)
+          });
 
-    const sessionExpired = await updateSessionIfExpired(result);
+          return res.text();
+        },
+        { url, payload, headers }
+      ),
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Request timeout")), 30000)
+      )
+    ]);
 
-    if (sessionExpired) {
-      const result = await page!.evaluate(async (url, payload, headers) => {
-        const res = await fetch(url, {
-          method: "POST",
-          headers: headers,
-          body: JSON.stringify(payload)
-        });
+    return JSON.parse(result as string);
 
-        return res.text();
-      }, url, payload, headers);
-
-      return JSON.parse(result);
-    }
-
-    return JSON.parse(result);
   } catch (err) {
     console.error(`BrowserPost error: ${new Date()}`, err);
+    return null;
+  } finally {
+    if (newPage && !newPage.isClosed()) {
+      await newPage.close();
+    }
   }
 }
 
