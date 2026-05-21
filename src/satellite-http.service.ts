@@ -133,20 +133,10 @@ async function updateSessionIfExpired(response: any) {
   return false;
 }
 
-async function browserPost(url: string, payload: any) {
-  let newPage: Page | null = null;
+async function pageEvaluate(newPage: Page, url: string, payload: any){
+  const headers = getHeader()
 
-  try {
-    newPage = await context!.newPage();
-
-    await newPage.goto(process.env.DOMAIN_URL!, {
-      waitUntil: "networkidle2",
-      timeout: 30000
-    });
-
-    const headers = getHeader()
-
-    const result = await Promise.race([
+  return await Promise.race([
       newPage.evaluate(
         async ({ url, payload, headers }) => {
           const res = await fetch(url, {
@@ -163,11 +153,31 @@ async function browserPost(url: string, payload: any) {
         setTimeout(() => reject(new Error("Request timeout")), 30000)
       )
     ]);
+}
+
+async function browserPost(url: string, payload: any) {
+  let newPage: Page | null = null;
+
+  try {
+    newPage = await context!.newPage();
+
+    await newPage.goto(process.env.DOMAIN_URL!, {
+      waitUntil: "networkidle2",
+      timeout: 30000
+    });
+    let result;
+
+    result = await pageEvaluate(newPage, url, payload);
+
+    const sessionExpired = await updateSessionIfExpired(result);
+
+    if (sessionExpired) {
+      result = await pageEvaluate(newPage, url, payload);
+    }
 
     return JSON.parse(result as string);
-
   } catch (err) {
-    console.error(`BrowserPost error: ${new Date()}`, err);
+    console.error("browserPost error:", err);
     return null;
   } finally {
     if (newPage && !newPage.isClosed()) {
